@@ -1,0 +1,14 @@
+services:
+  noopzone:
+    build: .
+    container_name: noopzone
+    restart: unless-stopped
+    ports:
+      - "8700:8700"
+    environment:
+      NOOP_PUSH_TOKEN: ${NOOP_PUSH_TOKEN}
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
+      DATA_DIR: /data
+      TZ: ${TZ:-Europe/Stockholm}
+    volumes:
+      - ./data:/data

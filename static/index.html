@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b0d10">
+  <title>NoopZone</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div><div class="eyebrow">SELF-HOSTED HEALTH</div><h1>NoopZone</h1></div>
+      <div id="sync" class="sync">No data yet</div>
+    </header>
+    <section class="hero">
+      <div class="ring"><span id="recovery">–</span><small>RECOVERY</small></div>
+      <div class="metric"><small>SLEEP</small><strong id="sleep">–</strong><span>hours</span></div>
+      <div class="metric"><small>HRV</small><strong id="hrv">–</strong><span>ms</span></div>
+      <div class="metric"><small>RHR</small><strong id="rhr">–</strong><span>bpm</span></div>
+      <div class="metric"><small>STRAIN</small><strong id="strain">–</strong></div>
+    </section>
+    <section class="card">
+      <div class="cardhead"><h2>Recovery trend</h2><span>last 30 days</span></div>
+      <svg id="trend" viewBox="0 0 900 220" role="img" aria-label="Recovery trend"></svg>
+    </section>
+    <div class="grid">
+      <section class="card"><div class="cardhead"><h2>Recent sleep</h2></div><div id="sleepList" class="list"></div></section>
+      <section class="card"><div class="cardhead"><h2>Recent workouts</h2></div><div id="workoutList" class="list"></div></section>
+    </div>
+    <section class="card">
+      <div class="cardhead"><h2>Stored locally</h2><span>NOOP Push 1.0</span></div>
+      <div id="counts" class="counts"></div>
+    </section>
+    <footer>Data stays on your server. NoopZone is independent and not affiliated with WHOOP.</footer>
+  </main>
+<script src="/static/app.js"></script>
+</body>
+</html>
