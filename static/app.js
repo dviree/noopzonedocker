@@ -10,9 +10,15 @@ function drawTrend(days){
   svg.innerHTML+=`<polyline class="trendline" points="${p.map(x=>x.join(",")).join(" ")}"/>`+p.map(x=>`<circle class="dot" cx="${x[0]}" cy="${x[1]}" r="4"/>`).join("");
 }
 function row(title,sub,right){return `<div class="row"><div><strong>${title}</strong><br><span>${sub}</span></div><strong>${right}</strong></div>`}
+function latestMetric(rows,key){
+  const hits=(rows||[]).filter(x=>x.key?.key===key && x.data?.value!=null);
+  return hits.length?hits[hits.length-1].data.value:null;
+}
 async function load(){
   try{
-    const [s,sleep,work]=await Promise.all([get("/api/dashboard/summary"),get("/api/dashboard/sleep"),get("/api/dashboard/workouts")]);
+    const [s,sleep,work,apple]=await Promise.all([
+      get("/api/dashboard/summary"),get("/api/dashboard/sleep"),get("/api/dashboard/workouts"),get("/api/dashboard/apple")
+    ]);
     const d=s.latest?.data||{};
     q("#recovery").textContent=fmt(d.recovery);
     q("#sleep").textContent=hours(d.totalSleepMin);
@@ -21,6 +27,13 @@ async function load(){
     q("#strain").textContent=fmt(d.strain,1);
     q("#sync").textContent=s.lastSync?"Last sync "+new Date(s.lastSync*1000).toLocaleString():"No data yet";
     drawTrend(s.daily);
+    const ad=apple.latest?.data||{};
+    q("#appleSteps").textContent=fmt(ad.steps);
+    q("#appleActive").textContent=fmt(ad.activeKcal);
+    q("#appleVo2").textContent=fmt(ad.vo2max,1);
+    q("#appleWeight").textContent=fmt(ad.weightKg,1);
+    q("#appleBodyFat").textContent=fmt(latestMetric(apple.metrics,"body_fat"),1);
+    q("#appleBmi").textContent=fmt(latestMetric(apple.metrics,"bmi"),1);
     q("#counts").innerHTML=Object.entries(s.counts||{}).sort().map(([k,v])=>`<span class="pill">${k}: ${v}</span>`).join("")||'<span class="pill">Waiting for NoopZone</span>';
     q("#sleepList").innerHTML=sleep.slice(0,6).map(x=>{
       const st=x.key.startTs?new Date(x.key.startTs*1000).toLocaleDateString():"Sleep";
