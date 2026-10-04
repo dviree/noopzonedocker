@@ -10,7 +10,8 @@ It is designed for a NAS: the iPhone remains the authoritative collector, while 
 - Authenticated `POST /api/noop` NDJSON batches.
 - gzip and identity request bodies.
 - All 12 core NOOP Push 1.0 streams.
-- NoopZone Apple Health extensions: `appleDaily`, `metricSeries`, and `appleStepHour`.
+- Optional Apple Health extension streams: `appleDaily`, `metricSeries`, and `appleStepHour`.
+- Direct Apple Health import from the standard `export.zip` or `export.xml`; this does **not** require changes to the NoopZone app.
 - Idempotent batch receipts: a retry does not duplicate data.
 - Append streams and multipart `replace_window` streams.
 - Persistent SQLite/WAL database under `./data`.
@@ -37,11 +38,17 @@ Open:
 http://NAS-IP:8700
 ```
 
-The NoopZone iOS endpoint is:
+The NOOP Push endpoint is:
 
 ```text
 http://NAS-IP:8700/api/noop
 ```
+
+### Apple Health
+
+In Apple Health, export your health data and upload the resulting `export.zip` from the **Import Apple Health** card in the dashboard. Enter `NOOP_PUSH_TOKEN` when the page asks for the server token. The token is used for that request and is not stored by the page.
+
+The importer streams `export.xml` and stores daily HR/HRV/RHR/SpO₂/respiration/activity/body-composition metrics, sleep stages and workouts. Re-importing a newer Apple export replaces only the previous `healthkit-export` snapshot; WHOOP/NOOP rows are left untouched.
 
 For access away from home, prefer HTTPS or Tailscale rather than exposing port 8700 directly to the internet.
 
@@ -55,7 +62,7 @@ Back up the `data/` directory. The receiver state ID and all health records live
 
 ## Protocol
 
-The receiver follows NOOP's documented Push Protocol 1.0 contract for the core registry. NoopZone adds three optional extension streams for Apple Health data; these are advertised separately in the capability response so a strict upstream NOOP client can ignore them. The phone remains authoritative; this server never sends health records or commands back to the phone.
+The receiver follows NOOP's documented Push Protocol 1.0 contract for the core registry. Three optional Apple Health extension streams are advertised separately so a strict upstream NOOP client can ignore them. Apple Health can also be imported directly from Apple's export archive, independently of the NoopZone app. The server never sends health records or commands back to the phone.
 
 ## Attribution
 
