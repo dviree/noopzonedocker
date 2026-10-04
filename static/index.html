@@ -42,13 +42,9 @@
           <span>Apple Health export</span>
           <input id="healthFile" type="file" accept=".zip,.xml,application/zip,text/xml,application/xml">
         </label>
-        <label>
-          <span>Server token</span>
-          <input id="healthToken" type="password" autocomplete="off" placeholder="NOOP_PUSH_TOKEN">
-        </label>
         <button id="healthImport" type="button">Import</button>
       </div>
-      <div id="healthImportStatus" class="importstatus">Token is used only for this upload and is not saved by the page.</div>
+      <div id="healthImportStatus" class="importstatus">Apple Health import is available from your LAN or Tailscale network. No token is needed.</div>
     </section>
     <div class="grid">
       <section class="card"><div class="cardhead"><h2>Recent sleep</h2></div><div id="sleepList" class="list"></div></section>
