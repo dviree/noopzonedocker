@@ -6,3 +6,6 @@
 
 .healthgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.healthmetric{padding:15px;background:#0d1115;border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;gap:4px}.healthmetric small{font-size:10px;letter-spacing:1.2px;color:var(--muted)}.healthmetric strong{font-size:24px}.healthmetric span{font-size:11px;color:var(--muted)}
 @media(max-width:800px){.healthgrid{grid-template-columns:repeat(2,1fr)}}
+
+.importgrid{display:grid;grid-template-columns:1.4fr 1.4fr auto;gap:10px;align-items:end}.importgrid label{display:flex;flex-direction:column;gap:7px}.importgrid label>span{font-size:10px;letter-spacing:1.2px;color:var(--muted)}.importgrid input{width:100%;min-height:42px;border:1px solid var(--line);border-radius:11px;background:#0b0f13;color:var(--text);padding:10px 12px}.importgrid input[type=file]{padding:8px}.importgrid button{min-height:42px;border:1px solid #365e4b;border-radius:11px;background:#183629;color:#dff9eb;font-weight:700;padding:0 18px;cursor:pointer}.importgrid button:disabled{opacity:.5;cursor:default}.importstatus{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.45}.importstatus.ok{color:#9bd9ba}.importstatus.bad{color:#ff9e9e}
+@media(max-width:800px){.importgrid{grid-template-columns:1fr}.importgrid button{width:100%}}
