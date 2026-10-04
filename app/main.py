@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import gzip
 import hashlib
 import json
 import os
 import secrets
 import sqlite3
+import tempfile
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+from app.healthkit import APPLE_DEVICE_ID, APPLE_SOURCE_ID, HealthKitImportResult, parse_healthkit_export
 
 PROTOCOL_VERSION = "1.0"
 MAX_DECODED = 4 * 1024 * 1024
@@ -46,6 +50,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "noopzone.sqlite3"
 PUSH_TOKEN = os.getenv("NOOP_PUSH_TOKEN", "")
 DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
+HEALTHKIT_MAX_UPLOAD_MB = max(1, int(os.getenv("HEALTHKIT_MAX_UPLOAD_MB", "2048")))
+HEALTHKIT_MAX_XML_GB = max(1, int(os.getenv("HEALTHKIT_MAX_XML_GB", "8")))
 
 app = FastAPI(title="NoopZone Docker", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -114,6 +120,14 @@ def init_db() -> None:
               replacement_id TEXT NOT NULL,
               PRIMARY KEY(source_id, device_id, stream, replacement_id)
             );
+            CREATE TABLE IF NOT EXISTS healthkit_imports (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              imported_at INTEGER NOT NULL,
+              file_name TEXT,
+              upload_bytes INTEGER NOT NULL,
+              summary_json TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS replacement_part (
               source_id TEXT NOT NULL,
               device_id TEXT NOT NULL,
@@ -165,6 +179,15 @@ def require_dashboard_auth(authorization: str | None) -> None:
         return
     if not secrets.compare_digest(bearer(authorization), DASHBOARD_TOKEN):
         raise HTTPException(status_code=401, detail="dashboard authentication required")
+
+
+def require_import_auth(authorization: str | None) -> None:
+    token = bearer(authorization)
+    valid = bool(PUSH_TOKEN) and secrets.compare_digest(token, PUSH_TOKEN)
+    if DASHBOARD_TOKEN:
+        valid = valid or secrets.compare_digest(token, DASHBOARD_TOKEN)
+    if not valid:
+        raise HTTPException(status_code=401, detail="import authentication required")
 
 
 def receiver_state_id() -> str:
@@ -434,6 +457,226 @@ def handle_replace(con: sqlite3.Connection, header: dict[str, Any], records: lis
         "DELETE FROM replacement_part WHERE source_id=? AND device_id=? AND stream=? AND replacement_id=?",
         (*scope, rid),
     )
+
+
+def _put_record(
+    con: sqlite3.Connection,
+    *,
+    stream: str,
+    key: dict[str, Any],
+    data: dict[str, Any],
+    selector_text: str | None = None,
+    selector_int: int | None = None,
+    now: int,
+) -> None:
+    con.execute(
+        """
+        INSERT INTO records(source_id,device_id,stream,natural_key,key_json,data_json,selector_text,selector_int,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(source_id,device_id,stream,natural_key) DO UPDATE SET
+          key_json=excluded.key_json,
+          data_json=excluded.data_json,
+          selector_text=excluded.selector_text,
+          selector_int=excluded.selector_int,
+          updated_at=excluded.updated_at
+        """,
+        (
+            APPLE_SOURCE_ID,
+            APPLE_DEVICE_ID,
+            stream,
+            canonical_key(key),
+            json.dumps(key, separators=(",", ":"), ensure_ascii=False),
+            json.dumps(data, separators=(",", ":"), ensure_ascii=False),
+            selector_text,
+            selector_int,
+            now,
+        ),
+    )
+
+
+def persist_healthkit(result: HealthKitImportResult, file_name: str | None, upload_bytes: int) -> dict[str, Any]:
+    now = int(time.time())
+    with db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            # Apple Health export is a snapshot. Replace only the previous export-derived rows;
+            # NOOP/WHOOP data and any future live source remain untouched.
+            con.execute(
+                "DELETE FROM records WHERE source_id=? AND device_id=?",
+                (APPLE_SOURCE_ID, APPLE_DEVICE_ID),
+            )
+
+            for day, metrics in result.metrics.items():
+                for key, value in metrics.items():
+                    _put_record(
+                        con,
+                        stream="metricSeries",
+                        key={"day": day, "key": key},
+                        data={"value": value},
+                        selector_text=day,
+                        now=now,
+                    )
+
+                _put_record(
+                    con,
+                    stream="appleDaily",
+                    key={"day": day},
+                    data={
+                        "steps": metrics.get("steps"),
+                        "activeKcal": metrics.get("active_kcal"),
+                        "basalKcal": metrics.get("basal_kcal"),
+                        "vo2max": metrics.get("vo2max"),
+                        "avgHr": metrics.get("avg_hr"),
+                        "maxHr": metrics.get("max_hr"),
+                        "walkingHr": metrics.get("walking_hr"),
+                        "weightKg": metrics.get("weight"),
+                    },
+                    selector_text=day,
+                    now=now,
+                )
+
+                _put_record(
+                    con,
+                    stream="dailyMetric",
+                    key={"day": day},
+                    data={
+                        "totalSleepMin": metrics.get("asleep_min"),
+                        "efficiency": None,
+                        "deepMin": metrics.get("deep_min"),
+                        "remMin": metrics.get("rem_min"),
+                        "lightMin": metrics.get("core_min"),
+                        "disturbances": None,
+                        "restingHr": metrics.get("resting_hr"),
+                        "avgHrv": metrics.get("hrv"),
+                        "recovery": None,
+                        "strain": None,
+                        "exerciseCount": None,
+                        "spo2Pct": metrics.get("spo2"),
+                        "skinTempDevC": metrics.get("wrist_temp_c") or metrics.get("body_temp_c"),
+                        "respRateBpm": metrics.get("resp_rate"),
+                    },
+                    selector_text=day,
+                    now=now,
+                )
+
+            for sleep in result.sleeps:
+                _put_record(
+                    con,
+                    stream="sleepSession",
+                    key={"startTs": sleep["startTs"]},
+                    data={
+                        "endTs": sleep["endTs"],
+                        "efficiency": None,
+                        "restingHr": result.metrics.get(sleep["day"], {}).get("resting_hr"),
+                        "avgHrv": result.metrics.get(sleep["day"], {}).get("hrv"),
+                        "stagesJSON": json.dumps(
+                            {
+                                "asleepMin": sleep["asleepMin"],
+                                "deepMin": sleep["deepMin"],
+                                "remMin": sleep["remMin"],
+                                "coreMin": sleep["coreMin"],
+                                "awakeMin": sleep["awakeMin"],
+                                "inBedMin": sleep["inBedMin"],
+                            },
+                            separators=(",", ":"),
+                        ),
+                        "userEdited": False,
+                        "source": sleep["source"],
+                    },
+                    selector_int=sleep["startTs"],
+                    now=now,
+                )
+
+            for workout in result.workouts:
+                _put_record(
+                    con,
+                    stream="workout",
+                    key={"startTs": workout.start_ts, "sport": workout.sport},
+                    data={
+                        "endTs": workout.end_ts,
+                        "source": workout.source or "Apple Health",
+                        "durationS": workout.duration_s,
+                        "energyKcal": workout.energy_kcal,
+                        "avgHr": workout.avg_hr,
+                        "maxHr": workout.max_hr,
+                        "strain": None,
+                        "distanceM": workout.distance_m,
+                        "zonesJSON": None,
+                        "notes": None,
+                    },
+                    selector_int=workout.start_ts,
+                    now=now,
+                )
+
+            summary = result.summary()
+            con.execute(
+                "INSERT INTO healthkit_imports(imported_at,file_name,upload_bytes,summary_json) VALUES(?,?,?,?)",
+                (now, file_name, upload_bytes, json.dumps(summary, separators=(",", ":"), ensure_ascii=False)),
+            )
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    return summary
+
+
+@app.post("/api/healthkit/import")
+async def import_healthkit(
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    require_import_auth(authorization)
+    max_upload = HEALTHKIT_MAX_UPLOAD_MB * 1024 * 1024
+    suffix = ".zip" if (file.filename or "").lower().endswith(".zip") else ".xml"
+    total = 0
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="noopzone-healthkit-", suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_upload:
+                    raise HTTPException(status_code=413, detail="Apple Health upload exceeds configured limit")
+                tmp.write(chunk)
+
+        try:
+            result = await asyncio.to_thread(
+                parse_healthkit_export,
+                tmp_path,
+                HEALTHKIT_MAX_XML_GB * 1024**3,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        summary = await asyncio.to_thread(persist_healthkit, result, file.filename, total)
+        return {"status": "imported", **summary}
+    finally:
+        await file.close()
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+
+
+@app.get("/api/healthkit/imports")
+def healthkit_imports(authorization: str | None = Header(default=None)):
+    require_dashboard_auth(authorization)
+    with db() as con:
+        rows = con.execute(
+            "SELECT imported_at,file_name,upload_bytes,summary_json FROM healthkit_imports ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+    return [
+        {
+            "importedAt": row["imported_at"],
+            "fileName": row["file_name"],
+            "uploadBytes": row["upload_bytes"],
+            "summary": json.loads(row["summary_json"]),
+        }
+        for row in rows
+    ]
 
 
 @app.post("/api/noop")
