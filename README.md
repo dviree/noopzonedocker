@@ -2,18 +2,19 @@
 
 Self-hosted receiver + health dashboard for **NoopZone / NOOP Push Protocol 1.0**.
 
-It is designed for a NAS: the iPhone remains the authoritative collector, while this container keeps a one-way historical copy of your WHOOP/NoopZone data. No WHOOP cloud account is required for this path.
+It is designed for a NAS: the iPhone remains the authoritative collector, while this container keeps a one-way historical copy of your WHOOP/NoopZone **and Apple Health** data. No WHOOP cloud account is required for this path.
 
 ## What is implemented
 
 - Authenticated `GET /api/noop` capability negotiation.
 - Authenticated `POST /api/noop` NDJSON batches.
 - gzip and identity request bodies.
-- All 12 NOOP Push 1.0 streams.
+- All 12 core NOOP Push 1.0 streams.
+- NoopZone Apple Health extensions: `appleDaily`, `metricSeries`, and `appleStepHour`.
 - Idempotent batch receipts: a retry does not duplicate data.
 - Append streams and multipart `replace_window` streams.
 - Persistent SQLite/WAL database under `./data`.
-- Dashboard for recovery, sleep, HRV, resting HR, strain, sleep sessions, workouts and stored-row counts.
+- Dashboard for recovery, sleep, HRV, resting HR, strain, sleep sessions, workouts, plus Apple Health steps, calories, VO₂max, weight, body-fat/BMI, and stored-row counts.
 - Readiness endpoint: `GET /healthz`.
 
 ## NAS install
@@ -54,7 +55,7 @@ Back up the `data/` directory. The receiver state ID and all health records live
 
 ## Protocol
 
-The receiver follows NOOP's documented Push Protocol 1.0 contract. The phone remains authoritative; this server never sends health records or commands back to the phone.
+The receiver follows NOOP's documented Push Protocol 1.0 contract for the core registry. NoopZone adds three optional extension streams for Apple Health data; these are advertised separately in the capability response so a strict upstream NOOP client can ignore them. The phone remains authoritative; this server never sends health records or commands back to the phone.
 
 ## Attribution
 
