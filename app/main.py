@@ -32,6 +32,14 @@ STREAMS = {
     "workout": "replace_window",
     "journal": "replace_window",
 }
+# NoopZone extensions. Kept out of the core `streams` capability list so an upstream
+# NOOP Push 1.0 client still sees a strict registry; NoopZone iOS opts into these explicitly.
+EXTENSION_STREAMS = {
+    "appleDaily": "replace_window",
+    "metricSeries": "replace_window",
+    "appleStepHour": "append",
+}
+ALL_STREAMS = STREAMS | EXTENSION_STREAMS
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -195,6 +203,7 @@ def noop_capabilities(
         "protocolVersion": PROTOCOL_VERSION,
         "receiverStateId": receiver_state_id(),
         "streams": list(STREAMS.keys()),
+        "extensions": list(EXTENSION_STREAMS.keys()),
     }
 
 
@@ -241,9 +250,9 @@ def validate_header(header: dict[str, Any], records: list[dict[str, Any]]) -> No
     if header.get("protocolVersion") != PROTOCOL_VERSION:
         raise error(422, "unsupported_version")
     stream = header.get("stream")
-    if stream not in STREAMS:
+    if stream not in ALL_STREAMS:
         raise error(422, "unsupported_stream")
-    if header.get("delivery") != STREAMS[stream]:
+    if header.get("delivery") != ALL_STREAMS[stream]:
         raise error(422, "delivery_mismatch")
     for k in ("batchId", "sourceId", "deviceId"):
         if not isinstance(header.get(k), str) or not header[k]:
@@ -494,9 +503,12 @@ def read_stream(stream: str, limit: int = 5000) -> list[dict[str, Any]]:
 @app.get("/api/dashboard/summary")
 def dashboard_summary(authorization: str | None = Header(default=None)):
     require_dashboard_auth(authorization)
-    daily = read_stream("dailyMetric", 120)
-    daily.sort(key=lambda r: r["key"].get("day", ""))
-    latest = daily[-1] if daily else None
+    daily = read_stream("dailyMetric", 300)
+    daily.sort(key=lambda r: (r["key"].get("day", ""), r["updatedAt"]))
+    # Prefer a row that actually carries NOOP's recovery/strain for the hero. Apple Health also
+    # writes dailyMetric rows, but those intentionally have recovery/strain = null.
+    scored = [r for r in daily if r["data"].get("recovery") is not None or r["data"].get("strain") is not None]
+    latest = scored[-1] if scored else (daily[-1] if daily else None)
     with db() as con:
         counts = {
             row["stream"]: row["n"]
@@ -529,3 +541,22 @@ def dashboard_hr(authorization: str | None = Header(default=None), limit: int = 
     rows = read_stream("hrSample", limit)
     rows.sort(key=lambda r: r["key"].get("ts", 0))
     return rows
+
+
+@app.get("/api/dashboard/apple")
+def dashboard_apple(authorization: str | None = Header(default=None)):
+    require_dashboard_auth(authorization)
+    daily = read_stream("appleDaily", 120)
+    daily.sort(key=lambda r: r["key"].get("day", ""))
+    metrics = read_stream("metricSeries", 3000)
+    metrics = [r for r in metrics if r["deviceId"] == "apple-health"]
+    metrics.sort(key=lambda r: (r["key"].get("day", ""), r["key"].get("key", "")))
+    hourly_steps = read_stream("appleStepHour", 24 * 14)
+    hourly_steps = [r for r in hourly_steps if r["deviceId"] == "apple-health"]
+    hourly_steps.sort(key=lambda r: r["key"].get("ts", 0))
+    return {
+        "latest": daily[-1] if daily else None,
+        "daily": daily,
+        "metrics": metrics,
+        "hourlySteps": hourly_steps,
+    }
