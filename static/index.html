@@ -35,6 +35,21 @@
         <div class="healthmetric"><small>BMI</small><strong id="appleBmi">–</strong></div>
       </div>
     </section>
+    <section class="card">
+      <div class="cardhead"><h2>Import Apple Health</h2><span>export.zip or export.xml</span></div>
+      <div class="importgrid">
+        <label class="filepick">
+          <span>Apple Health export</span>
+          <input id="healthFile" type="file" accept=".zip,.xml,application/zip,text/xml,application/xml">
+        </label>
+        <label>
+          <span>Server token</span>
+          <input id="healthToken" type="password" autocomplete="off" placeholder="NOOP_PUSH_TOKEN">
+        </label>
+        <button id="healthImport" type="button">Import</button>
+      </div>
+      <div id="healthImportStatus" class="importstatus">Token is used only for this upload and is not saved by the page.</div>
+    </section>
     <div class="grid">
       <section class="card"><div class="cardhead"><h2>Recent sleep</h2></div><div id="sleepList" class="list"></div></section>
       <section class="card"><div class="cardhead"><h2>Recent workouts</h2></div><div id="workoutList" class="list"></div></section>
