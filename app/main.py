@@ -729,7 +729,9 @@ def read_stream(stream: str, limit: int = 5000) -> list[dict[str, Any]]:
     with db() as con:
         rows = con.execute(
             """SELECT device_id,key_json,data_json,updated_at
-               FROM records WHERE stream=? ORDER BY updated_at DESC LIMIT ?""",
+               FROM records WHERE stream=?
+               ORDER BY selector_text DESC, selector_int DESC, updated_at DESC
+               LIMIT ?""",
             (stream, limit),
         ).fetchall()
     return [
