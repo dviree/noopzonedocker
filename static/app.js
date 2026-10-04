@@ -50,20 +50,17 @@ load(); setInterval(load,30000);
 
 async function importHealth(){
   const file=q("#healthFile")?.files?.[0];
-  const token=q("#healthToken")?.value?.trim()||"";
   const status=q("#healthImportStatus");
   const button=q("#healthImport");
   if(!file){status.textContent="Choose export.zip or export.xml first.";status.className="importstatus bad";return}
-  if(!token){status.textContent="Enter the server token.";status.className="importstatus bad";return}
   const form=new FormData(); form.append("file",file,file.name);
   button.disabled=true; status.textContent="Importing… large Apple Health exports can take a while.";status.className="importstatus";
   try{
-    const r=await fetch("/api/healthkit/import",{method:"POST",headers:{Authorization:"Bearer "+token},body:form});
+    const r=await fetch("/api/healthkit/import",{method:"POST",body:form});
     const body=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(body.detail||("HTTP "+r.status));
     status.textContent=`Imported ${body.days||0} days, ${body.sleepSessions||0} sleep sessions and ${body.workoutCount||0} workouts.`;
     status.className="importstatus ok";
-    q("#healthToken").value="";
     await load();
   }catch(e){
     status.textContent="Import failed: "+e.message;
