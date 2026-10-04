@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
@@ -181,13 +182,16 @@ def require_dashboard_auth(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="dashboard authentication required")
 
 
-def require_import_auth(authorization: str | None) -> None:
-    token = bearer(authorization)
-    valid = bool(PUSH_TOKEN) and secrets.compare_digest(token, PUSH_TOKEN)
-    if DASHBOARD_TOKEN:
-        valid = valid or secrets.compare_digest(token, DASHBOARD_TOKEN)
-    if not valid:
-        raise HTTPException(status_code=401, detail="import authentication required")
+def require_local_import(request: Request) -> None:
+    host = request.client.host if request.client else ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Apple Health import is limited to local or Tailscale clients")
+    # Allow loopback, RFC1918/private/link-local and Tailscale CGNAT 100.64.0.0/10.
+    tailscale = ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
+    if not (ip.is_loopback or ip.is_private or ip.is_link_local or tailscale):
+        raise HTTPException(status_code=403, detail="Apple Health import is limited to local or Tailscale clients")
 
 
 def receiver_state_id() -> str:
@@ -622,10 +626,10 @@ def persist_healthkit(result: HealthKitImportResult, file_name: str | None, uplo
 
 @app.post("/api/healthkit/import")
 async def import_healthkit(
+    request: Request,
     file: UploadFile = File(...),
-    authorization: str | None = Header(default=None),
 ):
-    require_import_auth(authorization)
+    require_local_import(request)
     max_upload = HEALTHKIT_MAX_UPLOAD_MB * 1024 * 1024
     suffix = ".zip" if (file.filename or "").lower().endswith(".zip") else ".xml"
     total = 0
