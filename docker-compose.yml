@@ -10,5 +10,13 @@ services:
       DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
       DATA_DIR: /data
       TZ: ${TZ:-Europe/Stockholm}
+      HEALTHKIT_MAX_UPLOAD_MB: ${HEALTHKIT_MAX_UPLOAD_MB:-2048}
+      HEALTHKIT_MAX_XML_GB: ${HEALTHKIT_MAX_XML_GB:-8}
     volumes:
       - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8700/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
